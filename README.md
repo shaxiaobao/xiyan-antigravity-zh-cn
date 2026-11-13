@@ -2,6 +2,8 @@
 
 Antigravity 的简体中文外置汉化包。当前针对 Antigravity 2.31.x，采用启动后注入翻译脚本的方式工作，不修改项目源代码，也不依赖网络。
 
+下载发布包：<https://github.com/shaxiaobao/xiyan-antigravity-zh-cn/releases/latest>
+
 ## 安装
 
 1. 下载或克隆本仓库。
