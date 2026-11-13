@@ -1,0 +1,4 @@
+__pycache__/
+backups/
+patch-state.json
+.DS_Store
