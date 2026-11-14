@@ -85,19 +85,19 @@ class Installer:
             self.log(str(error))
 
     def choose(self):
-        selected = filedialog.askdirectory(title='选择 Antigravity.app 或 Windows 安装文件夹')
+        selected = filedialog.askdirectory(title='选择 Antigravity.app 或 Windows 安装文件夹', mustexist=True)
         if selected:
             self.path.set(selected)
             self.detect()
 
     def import_old(self):
-        selected = filedialog.askdirectory(title='选择包含 patch-state.json 和 backups 的旧语言包文件夹')
+        selected = filedialog.askopenfilename(title='选择旧语言包中的 patch-state.json', filetypes=[('旧版状态文件', '*.json')])
         if not selected:
             return
         try:
             self.configure()
             with service.exclusive():
-                if not service.import_legacy(selected):
+                if not service.import_legacy(Path(selected).parent):
                     raise RuntimeError('当前已有备份记录，或所选目录没有旧版记录。')
             self.log('已校验并导入旧版备份，旧目录保留不变。')
             self.detect()
