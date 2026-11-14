@@ -1,0 +1,39 @@
+name: Build standalone installers
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: windows-x64
+            executable: dist/XiyanAntigravityChinese.exe
+          - os: macos-15-intel
+            artifact: macos-x64
+            executable: dist/XiyanAntigravityChinese.app/Contents/MacOS/XiyanAntigravityChinese
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pyinstaller==6.16.0
+      - run: python -m unittest -v test_patch_asar.py test_installer_service.py
+      - run: python build_installer.py
+      - name: Test packaged runtime and Tk
+        run: python -c "import subprocess,json; subprocess.run(['${{ matrix.executable }}','--self-test','self-test-result.json'],check=True,timeout=60); assert json.load(open('self-test-result.json'))['ok']"
+      - run: python package_installer.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.artifact }}
+          path: release/xiyan-installer-*.zip
+          if-no-files-found: error

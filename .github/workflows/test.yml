@@ -8,12 +8,15 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m unittest -v test_patch_asar.py
+      - run: python -m unittest -v test_patch_asar.py test_installer_service.py
       - run: python build_release.py --platform windows
       - name: Native Windows process query
         if: runner.os == 'Windows'

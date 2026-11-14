@@ -4,39 +4,42 @@
 
 [下载最新版](https://github.com/shaxiaobao/xiyan-antigravity-zh-cn/releases/latest)
 
-## macOS 使用
+## 推荐：下载安装器，无需安装 Python
 
-1. 下载 Release ZIP，解压后保留整个文件夹。
-2. 安装 Python 3.9 或更新版本（已有 Python 3 的电脑无需重复安装）。
-3. 首次使用前完全退出 Antigravity，然后双击 **希言 Antigravity 中文启动器.app**。也可双击 **启动 Antigravity 中文版.command**。
-4. 以后通过这个中文入口打开，可将 `.app` 拖到 Dock 的应用区域方便使用。不要单独移动 `.app`；它需要与语言包文件保存在同一文件夹。
+1. 在 Release 下载 `xiyan-installer` 开头、与系统对应的 ZIP：Windows x64、Mac Apple 芯片 arm64 或 Mac Intel x64。
+2. 解压后打开 `XiyanAntigravityChinese.exe`（Windows）或 `XiyanAntigravityChinese.app`（Mac）。
+3. 保存工作，完全退出 Antigravity。在安装器中确认位置，点击 **安装／修复汉化**。
+4. 完成后关闭安装器，从原来的 Antigravity 图标打开，即为中文。也可以点击 **打开 Antigravity**。
 
-macOS 可能要求为中文启动器开启“系统设置 → 隐私与安全性 → App 管理”权限，因为兼容加载器需要写入 Antigravity 应用资源。该权限由你自行决定是否授予，工具不会自动开启。未授权时会停止安装并显示错误，不会关闭系统保护。首次授权后需重新运行中文入口；若出现 `Operation not permitted`，请检查此权限。
+以后正常使用原图标，不必经过中文启动器。应用更新可能覆盖汉化，重新打开安装器点击“安装／修复汉化”即可。恢复英文也在同一个窗口操作。安装器不会强制结束任务、常驻后台或自动提权。
 
-## Windows 使用（实验性）
+Mac 如出现写入权限错误，请检查“系统设置 → 隐私与安全性 → App 管理”中的安装器权限。Windows 安装在 Program Files 等受保护目录时，需要应用所有者处理写入权限。安装器目前未经过 Apple 公证或 Windows 商业代码签名，系统可能显示来源提示。
 
-1. 下载文件名含 `windows` 的 ZIP，解压到自己可写的固定目录，保留全部文件。
-2. 安装 Python 3.9 或更新版本，确保 `py -3` 或 `python` 命令可用。
-3. 完全退出 Antigravity，双击 **启动 Antigravity 中文版.cmd**。可以为此文件创建桌面快捷方式。
-4. 启动器自动查找 `%LOCALAPPDATA%\Programs\Antigravity`、`%LOCALAPPDATA%\Antigravity`、`%ProgramFiles%\Antigravity` 和 `%ProgramFiles(x86)%\Antigravity`。
+安装器内置运行环境与 356 条翻译。Mac arm64 为本机打包；Windows 与 Mac Intel 包由对应平台 CI 构建并运行内置运行环境测试。Windows 实际 Antigravity 界面仍待实机验收，不同架构的应用资源不保证兼容。
 
-自定义安装目录可通过 `ANTIGRAVITY_PATH` 环境变量指定，或在终端使用以下命令（路径替换成实际位置）：
+## 旧版升级与备份
 
-```bat
-py -3 patch_asar.py --app "D:\Apps\Antigravity" launch
-py -3 patch_asar.py --app "D:\Apps\Antigravity" status
-py -3 patch_asar.py --app "D:\Apps\Antigravity" restore
+已经使用 v0.1–v0.3 的用户：先在新安装器中选择应用位置，再点 **导入旧版备份…**，选择包含 `patch-state.json` 与 `backups` 的旧语言包目录。导入会校验当前补丁及原始备份，不会删除旧文件。之后即可安装或恢复。没有有效备份时，不会强行覆盖未知补丁。
+
+新版安装器的备份与状态独立保存在以下目录，按应用路径分开管理：
+
+- Mac：`~/Library/Application Support/XiyanAntigravityChinese/`
+- Windows：`%LOCALAPPDATA%\XiyanAntigravityChinese\`
+
+因此移动安装器不会丢失备份。恢复英文后可以删除安装器；保留数据目录可供后续排查。安装中断时若出现锁文件或 pending 文件提示，请保留它们并反馈，不要直接删除状态后重装。
+
+## 开发者脚本入口
+
+源码仍支持 Python 3.9+ 的命令入口；普通用户请下载上方安装器，不用下载 GitHub 的 Source code。
+
+```bash
+python3 patch_asar.py status
+python3 patch_asar.py apply
+python3 patch_asar.py restore
+python3 patch_asar.py --app "/Applications/Antigravity.app" apply
 ```
 
-`--app` 也接受 `Antigravity.exe` 或 `resources\app.asar` 的完整路径。发现多个安装位置时会要求明确选择。安装在 Program Files 等受保护目录时，需要应用所有者提供写入权限；脚本不会自动提权。进程检测失败或应用正在运行时不会安装补丁。窗口关闭不一定代表程序退出，请检查托盘和任务管理器。
-
-Windows 版本必须包含兼容的 `resources/app.asar` 与 `/dist/utils.js` 加载结构。不同产品架构或版本不保证兼容；不兼容时会停止，不会尝试绕过应用完整性保护。Windows 支持状态与 macOS 实测结论分别记录。
-
-## 更新后保持中文
-
-启动器在应用未运行时检查补丁：应用升级覆盖补丁后，会为当前版本建立独立备份、检查注入位置，再重新安装汉化。词库更新也会自动重新生成补丁。若应用已经运行，启动器只打开现有窗口，不强制结束代理或后台任务；需完全退出后再用中文入口打开。
-
-**直接点击原版 Antigravity 图标，会绕过上述检查。** 原版图标在更新覆盖补丁之后仍可能打开英文界面。未来版本如果改变了界面结构或加载机制，需要继续适配；此项目不承诺任意版本永久兼容。
+Windows 可使用 `py -3`，`--app` 接受安装目录、Antigravity.exe 或 app.asar。也可用 `ANTIGRAVITY_PATH` 环境变量指定路径。旧 `.command/.cmd` 中文启动入口仍保留供旧版用户使用。
 
 ## 汉化范围
 
@@ -54,38 +57,16 @@ Windows 版本必须包含兼容的 `resources/app.asar` 与 `/dist/utils.js` �
 
 语言包不请求联网、不启动调试端口、不关闭应用更新或系统安全保护，也不安装后台常驻服务。
 
-## 从旧版升级
-
-用新版源文件和启动器覆盖原语言包目录，保留原来的 `patch-state.json` 和 `backups/`，然后完全退出 Antigravity 并使用中文入口重新打开。也可先在旧目录运行 `restore`，再安装新目录中的语言包。不要删除状态文件后强行安装：新目录无法识别另一目录安装的补丁时会拒绝覆盖。
-
-启动失败时可查看同目录 `launcher.log`，或双击 `.command` 入口查看错误。日志仅记录安装状态和错误，不记录对话内容。
-
-## 命令行
-
-在本目录运行：
+## 构建与验证
 
 ```bash
-python3 patch_asar.py status   # 查看当前版本和汉化状态
-python3 patch_asar.py apply    # 安装或更新兼容补丁
-python3 patch_asar.py launch   # 检查补丁并启动，保留运行中的任务
-python3 patch_asar.py restore  # 恢复当前版本原始资源
+python3 -m unittest -v test_patch_asar.py test_installer_service.py
+python3 -m pip install pyinstaller==6.16.0
+python3 build_installer.py
+python3 package_installer.py
 ```
 
-macOS 默认查找 `/Applications/Antigravity.app` 和用户的 `~/Applications/Antigravity.app`；自定义位置可使用 `--app` 参数。若目录无写权限，应由应用所有者处理权限；工具不会自动提权。
-
-备份按原始文件指纹保存在 `backups/`，旧备份保留。恢复会校验当前补丁与备份；应用升级后不会用旧版备份覆盖新版。请保留本目录和备份，不要通过删除状态文件来强行覆盖未知修改。
-
-## 开发与打包
-
-```bash
-python3 -m unittest -v test_patch_asar.py
-node --check translator.js
-python3 build_mac_launcher.py   # macOS，自带 osacompile
-python3 build_release.py --platform macos
-python3 build_release.py --platform windows
-```
-
-回归测试使用临时模拟应用，不写入已安装的 Antigravity，覆盖版本升级、词库更新、重复安装、恢复校验、未知修改保护和启动顺序。修改 `translations.json` 后，完全退出 Antigravity，再从中文入口打开即可加载。
+在目标操作系统上打包；Windows 构建 EXE，Mac 构建 APP。发布流程包含资源完整性、运行中保护、并发安装保护、状态写入失败回滚、旧备份导入和打包后 Tk/词库加载测试。离线测试使用模拟 ASAR，不代表真实应用界面验收。
 
 ## 许可证：允许非商业使用，禁止商用
 

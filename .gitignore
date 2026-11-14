@@ -5,3 +5,8 @@ patch-state.json
 *.app/
 release/*.zip
 launcher.log
+.build-venv/
+build/
+dist/
+*.spec
+self-test-result.json
