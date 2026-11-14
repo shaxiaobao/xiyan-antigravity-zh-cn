@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import sys
 import hashlib
 import json
 import os
@@ -15,12 +17,75 @@ import tempfile
 from pathlib import Path
 
 
+PLATFORM = sys.platform
 PACKAGE_DIR = Path(__file__).resolve().parent
 APP_ASAR = Path("/Applications/Antigravity.app/Contents/Resources/app.asar")
 BACKUP_DIR = PACKAGE_DIR / "backups"
 STATE_PATH = PACKAGE_DIR / "patch-state.json"
 TARGET_PATH = "/dist/utils.js"
 MARKER = "__ANTIGRAVITY_ZH_CN_EXTERNAL_PATCH__"
+
+
+def normalize_app_path(value):
+    path = Path(value).expanduser().resolve()
+    if path.name.lower() == "app.asar":
+        return path
+    if path.suffix.lower() == ".exe":
+        path = path.parent
+    if path.suffix.lower() == ".app":
+        return path / "Contents/Resources/app.asar"
+    return path / "resources/app.asar"
+
+
+def locate_app(explicit=None):
+    value = explicit or os.environ.get("ANTIGRAVITY_PATH")
+    if value:
+        candidate = normalize_app_path(value)
+        if not candidate.is_file():
+            raise RuntimeError(f"指定位置未找到 app.asar：{candidate}")
+        return candidate
+    if PLATFORM == "darwin":
+        candidates = [Path("/Applications/Antigravity.app/Contents/Resources/app.asar"),
+                      Path.home() / "Applications/Antigravity.app/Contents/Resources/app.asar"]
+    elif PLATFORM == "win32":
+        candidates = []
+        for variable, suffixes in {
+            "LOCALAPPDATA": ["Programs/Antigravity", "Antigravity"],
+            "ProgramFiles": ["Antigravity"],
+            "ProgramFiles(x86)": ["Antigravity"],
+        }.items():
+            if os.environ.get(variable):
+                candidates.extend(Path(os.environ[variable]) / suffix / "resources/app.asar" for suffix in suffixes)
+    else:
+        raise RuntimeError("目前支持 macOS 和 Windows。")
+    found = list(dict.fromkeys(p.resolve() for p in candidates if p.is_file()))
+    if len(found) == 1:
+        return found[0]
+    if len(found) > 1:
+        raise RuntimeError("发现多个安装位置，请用 --app 指定其中一个：" + ", ".join(map(str, found)))
+    raise RuntimeError("未找到 Antigravity，请用 --app 指定安装目录、可执行文件或 app.asar。")
+
+
+def app_running():
+    if PLATFORM == "win32":
+        # Conservatively treat any Antigravity.exe as running, including other installs.
+        tasklist = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/tasklist.exe"
+        result = subprocess.run([str(tasklist), "/FO", "CSV", "/NH"], capture_output=True, timeout=30)
+        if result.returncode != 0:
+            raise RuntimeError("无法检查应用进程，已停止操作。")
+        rows = list(csv.reader(result.stdout.decode("utf-8", errors="replace").splitlines()))
+        if not any(len(row) >= 2 and row[1].isdigit() for row in rows):
+            raise RuntimeError("无法解析 Windows 进程列表，已停止操作。")
+        return any(row and row[0].lower() == "antigravity.exe" for row in rows)
+    result = subprocess.run(["/usr/bin/pgrep", "-f", "^" + re.escape(str(APP_ASAR.parents[1] / "MacOS/Antigravity")) + "( |$)"], capture_output=True)
+    if result.returncode not in (0, 1):
+        raise RuntimeError("无法检查应用进程，已停止操作。")
+    return result.returncode == 0
+
+
+def require_stopped():
+    if app_running():
+        raise RuntimeError("请完全退出 Antigravity 后重试；不会中断正在运行的任务。")
 
 
 def sha256(path: Path) -> str:
@@ -268,19 +333,24 @@ def build_copy(output: Path):
 
 
 def launch():
-    # Do not interrupt running agents. Only patch before a fresh launch.
-    running = subprocess.run(["/usr/bin/pgrep", "-f", "^" + re.escape(str(APP_ASAR.parents[1] / "MacOS/Antigravity")) + "( |$)"], capture_output=True)
-    if running.returncode not in (0, 1):
-        raise RuntimeError("无法检查应用进程；请手动退出应用后运行 apply。")
-    if running.returncode == 0:
+    if PLATFORM == "win32":
+        executable = APP_ASAR.parent.parent / "Antigravity.exe"
+        if not executable.is_file():
+            raise RuntimeError(f"未找到应用程序：{executable}")
+    if app_running():
         print("Antigravity 已在运行，不会中断后台任务。若刚更新，请完全退出后再次使用中文启动入口。")
     else:
         apply_patch()
-    subprocess.run(["/usr/bin/open", "-a", str(APP_ASAR.parents[2])], check=True)
+    if PLATFORM == "win32":
+        subprocess.Popen([str(executable)], cwd=str(executable.parent))
+    else:
+        subprocess.run(["/usr/bin/open", "-a", str(APP_ASAR.parents[2])], check=True)
 
 
 def main():
+    global APP_ASAR
     parser = argparse.ArgumentParser(description="Antigravity 简体中文外置汉化包")
+    parser.add_argument("--app", help="Antigravity 安装目录、可执行文件或 app.asar 路径")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="查看补丁状态")
     sub.add_parser("apply", help="备份并安装补丁")
@@ -289,6 +359,9 @@ def main():
     build = sub.add_parser("build", help="只生成补丁文件，不修改已安装应用")
     build.add_argument("output", type=Path)
     args = parser.parse_args()
+    APP_ASAR = locate_app(args.app)
+    if args.command in ("apply", "restore"):
+        require_stopped()
     if args.command == "status":
         raise SystemExit(status())
     if args.command == "apply":
@@ -304,5 +377,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (RuntimeError, OSError, ValueError, KeyError) as error:
+    except (RuntimeError, OSError, ValueError, KeyError, subprocess.SubprocessError, struct.error) as error:
         raise SystemExit(f"汉化操作未完成：{error}")

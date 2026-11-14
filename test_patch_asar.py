@@ -4,6 +4,9 @@ import io
 import hashlib
 import json
 import struct
+import sys
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,7 +43,7 @@ class PatchLifecycle(unittest.TestCase):
         self.app.parent.mkdir(parents=True)
         archive(self.app, "2.31.2")
         self.injector = "window.testDictionary = 1;"
-        for name, value in {"APP_ASAR": self.app, "BACKUP_DIR": self.root / "backups", "STATE_PATH": self.root / "state.json"}.items():
+        for name, value in {"PLATFORM": "darwin", "APP_ASAR": self.app, "BACKUP_DIR": self.root / "backups", "STATE_PATH": self.root / "state.json"}.items():
             patcher = patch.object(tool, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -139,6 +142,90 @@ class PatchLifecycle(unittest.TestCase):
             run.side_effect = result
             tool.launch()
             self.assertEqual(events, ["/usr/bin/pgrep", "patch", "/usr/bin/open"])
+
+
+class WindowsSupport(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="中文 language pack ")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.install = self.root / "Programs/Antigravity"
+        self.asar = self.install / "resources/app.asar"
+        self.asar.parent.mkdir(parents=True)
+        archive(self.asar, "2.32.1")
+        (self.install / "Antigravity.exe").touch()
+        for name, value in {"PLATFORM": "win32", "APP_ASAR": self.asar,
+                            "STATE_PATH": self.root / "state.json", "BACKUP_DIR": self.root / "backups"}.items():
+            context = patch.object(tool, name, value)
+            context.start()
+            self.addCleanup(context.stop)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows CMD integration")
+    def test_native_cmd_entry_with_unicode_and_spaces(self):
+        launcher = self.root / "启动 中文版.cmd"
+        launcher.write_bytes((Path(__file__).parent / "启动 Antigravity 中文版.cmd").read_bytes())
+        for name in ("patch_asar.py", "translator.js", "translations.json"):
+            (self.root / name).write_bytes((Path(__file__).parent / name).read_bytes())
+        environment = dict(os.environ, ANTIGRAVITY_PATH=str(self.install))
+        original = self.asar.read_bytes()
+        result = subprocess.run(f'call "{launcher}" status', shell=True, stdin=subprocess.DEVNULL,
+                                capture_output=True, env=environment, timeout=60)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("尚未安装汉化补丁".encode(), result.stdout)
+        self.assertEqual(original, self.asar.read_bytes())
+
+    def test_discovery_and_explicit_paths(self):
+        with patch.dict(tool.os.environ, {"LOCALAPPDATA": str(self.root)}, clear=True):
+            self.assertEqual(tool.locate_app(), self.asar.resolve())
+            for path in [self.install, self.install / "Antigravity.exe", self.asar]:
+                self.assertEqual(tool.locate_app(str(path)), self.asar.resolve())
+            with patch.dict(tool.os.environ, {"ANTIGRAVITY_PATH": str(self.install)}):
+                self.assertEqual(tool.locate_app(), self.asar.resolve())
+
+    def test_ambiguous_installation_is_rejected(self):
+        other = self.root / "system/Antigravity/resources/app.asar"
+        other.parent.mkdir(parents=True)
+        other.write_bytes(self.asar.read_bytes())
+        with patch.dict(tool.os.environ, {"LOCALAPPDATA": str(self.root), "ProgramFiles": str(self.root / "system")}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "多个"):
+                tool.locate_app()
+
+    def test_process_detection_and_fail_closed(self):
+        with patch.object(tool.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = b'"Antigravity.exe","123","Console","1","1 K"\r\n'
+            self.assertTrue(tool.app_running())
+            with self.assertRaises(RuntimeError):
+                tool.require_stopped()
+            run.return_value.stdout = b'"System","4","Services","0","1 K"\r\n'
+            self.assertFalse(tool.app_running())
+            run.return_value.stdout = b'ERROR'
+            with self.assertRaises(RuntimeError):
+                tool.app_running()
+            run.return_value.returncode = 1
+            with self.assertRaises(RuntimeError):
+                tool.app_running()
+
+    def test_windows_install_launch_and_restore(self):
+        original = self.asar.read_bytes()
+        with patch.object(tool, "app_running", return_value=False), patch.object(tool.subprocess, "Popen") as start:
+            tool.launch()
+            self.assertIn(tool.MARKER.encode(), tool.inspect_app()[1])
+            start.assert_called_once_with([str(self.install / "Antigravity.exe")], cwd=str(self.install))
+        tool.restore_patch()
+        self.assertEqual(self.asar.read_bytes(), original)
+
+    def test_running_windows_app_is_not_modified(self):
+        with patch.object(tool, "app_running", return_value=True), patch.object(tool, "apply_patch") as apply, patch.object(tool.subprocess, "Popen"):
+            tool.launch()
+            apply.assert_not_called()
+
+    def test_missing_windows_executable_is_rejected_before_patch(self):
+        (self.install / "Antigravity.exe").unlink()
+        with patch.object(tool, "apply_patch") as apply:
+            with self.assertRaises(RuntimeError):
+                tool.launch()
+            apply.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build a native macOS launcher; keep it beside the language-pack sources."""
+import json
 import subprocess
 import plistlib
 from pathlib import Path
@@ -28,7 +29,7 @@ if __name__ == "__main__":
     plist_path = APP / "Contents/Info.plist"
     with plist_path.open("rb") as stream:
         metadata = plistlib.load(stream)
-    metadata.update({"CFBundleIdentifier": "cn.xiyan.antigravity.zh-cn.launcher", "CFBundleShortVersionString": "0.2.0", "CFBundleVersion": "2", "CFBundleDevelopmentRegion": "zh_CN"})
+    metadata.update({"CFBundleIdentifier": "cn.xiyan.antigravity.zh-cn.launcher", "CFBundleShortVersionString": json.loads((ROOT / "manifest.json").read_text())["version"], "CFBundleVersion": "3", "CFBundleDevelopmentRegion": "zh_CN"})
     # osacompile adds descriptions for many unrelated permissions; none are used.
     metadata = {key: value for key, value in metadata.items() if not key.endswith("UsageDescription")}
     with plist_path.open("wb") as stream:

@@ -1,11 +1,21 @@
 {
   "id": "cn.xiyan.antigravity.zh-cn",
   "name": "希言-Antigravity-汉化包",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "locale": "zh-CN",
-  "platform": "macOS",
-  "testedAppVersions": ["2.32.1"],
+  "testedAppVersions": [
+    "2.32.1"
+  ],
   "dictionary": "translations.json",
   "loader": "patch_asar.py",
-  "officialPlugin": false
+  "officialPlugin": false,
+  "platforms": [
+    "macOS",
+    "Windows"
+  ],
+  "license": "LicenseRef-Xiyan-Noncommercial-1.0",
+  "validation": {
+    "macOS": "Antigravity 2.32.1 GUI verified in v0.2.0",
+    "Windows": "experimental; application GUI not yet verified"
+  }
 }
