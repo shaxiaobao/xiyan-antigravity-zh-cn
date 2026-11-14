@@ -5,7 +5,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 import contextlib
 import io
 
@@ -37,7 +37,7 @@ class Installer:
         self.entry = ttk.Entry(location, textvariable=self.path)
         self.entry.grid(row=0, column=0, sticky='ew', padx=(0, 8))
         self.controls = [self.entry]
-        self.button(location, '选择…', self.choose).grid(row=0, column=1)
+        self.button(location, '填写路径…', self.choose).grid(row=0, column=1)
         self.button(location, '检测', self.detect).grid(row=0, column=2, padx=(8, 0))
         ttk.Label(frame, textvariable=self.status, wraplength=680).grid(row=4, column=0, sticky='w', pady=(0, 16))
         actions = ttk.Frame(frame)
@@ -72,7 +72,7 @@ class Installer:
         self.details.configure(state='disabled')
 
     def configure(self):
-        target = patch.locate_app(self.path.get().strip() or None)
+        target = patch.locate_app(self.path.get().strip().strip(chr(34)) or None)
         service.configure(target)
         self.path.set(str(target))
 
@@ -85,19 +85,22 @@ class Installer:
             self.log(str(error))
 
     def choose(self):
-        selected = filedialog.askdirectory(title='选择 Antigravity.app 或 Windows 安装文件夹', mustexist=True)
+        selected = simpledialog.askstring('应用位置', '粘贴 Antigravity 安装目录、可执行文件或 app.asar 的完整路径：', initialvalue=self.path.get(), parent=self.root)
         if selected:
             self.path.set(selected)
             self.detect()
 
     def import_old(self):
-        selected = filedialog.askopenfilename(title='选择旧语言包中的 patch-state.json', filetypes=[('旧版状态文件', '*.json')])
+        selected = simpledialog.askstring('导入旧版备份', '粘贴旧语言包文件夹或 patch-state.json 的完整路径：', parent=self.root)
         if not selected:
             return
         try:
             self.configure()
             with service.exclusive():
-                if not service.import_legacy(Path(selected).parent):
+                legacy = Path(selected.strip().strip(chr(34))).expanduser()
+                if legacy.is_file():
+                    legacy = legacy.parent
+                if not service.import_legacy(legacy):
                     raise RuntimeError('当前已有备份记录，或所选目录没有旧版记录。')
             self.log('已校验并导入旧版备份，旧目录保留不变。')
             self.detect()
