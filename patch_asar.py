@@ -26,6 +26,14 @@ TARGET_PATH = "/dist/utils.js"
 MARKER = "__ANTIGRAVITY_ZH_CN_EXTERNAL_PATCH__"
 
 
+def configure_output():
+    # Redirected consoles on non-Chinese Windows can otherwise fail after a successful install.
+    if PLATFORM == "win32":
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def normalize_app_path(value):
     path = Path(value).expanduser().resolve()
     if path.name.lower() == "app.asar":
@@ -349,6 +357,7 @@ def launch():
 
 def main():
     global APP_ASAR
+    configure_output()
     parser = argparse.ArgumentParser(description="Antigravity 简体中文外置汉化包")
     parser.add_argument("--app", help="Antigravity 安装目录、可执行文件或 app.asar 路径")
     sub = parser.add_subparsers(dest="command", required=True)

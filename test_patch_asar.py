@@ -146,6 +146,7 @@ class PatchLifecycle(unittest.TestCase):
 
 class WindowsSupport(unittest.TestCase):
     def setUp(self):
+        tool.configure_output()
         self.tmp = tempfile.TemporaryDirectory(prefix="中文 language pack ")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -159,6 +160,15 @@ class WindowsSupport(unittest.TestCase):
             context = patch.object(tool, name, value)
             context.start()
             self.addCleanup(context.stop)
+
+    def test_windows_output_handles_non_chinese_codepage(self):
+        data = io.BytesIO()
+        stream = io.TextIOWrapper(data, encoding="cp1252")
+        with patch.object(tool.sys, "stdout", stream), patch.object(tool.sys, "stderr", stream):
+            tool.configure_output()
+            print("汉化安装完成")
+            stream.flush()
+        self.assertIn("汉化安装完成".encode(), data.getvalue())
 
     @unittest.skipUnless(sys.platform == "win32", "Windows CMD integration")
     def test_native_cmd_entry_with_unicode_and_spaces(self):

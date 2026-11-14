@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def build(platform="macos"):
-    version = json.loads((ROOT / "manifest.json").read_text())["version"]
+    version = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))["version"]
     bundle = ROOT / "希言 Antigravity 中文启动器.app"
     if platform == "macos" and not (bundle / "Contents/Resources/Scripts/main.scpt").is_file():
         raise SystemExit("请先运行 python3 build_mac_launcher.py")
