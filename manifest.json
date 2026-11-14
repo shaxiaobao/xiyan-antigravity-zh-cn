@@ -1,0 +1,11 @@
+{
+  "id": "cn.xiyan.antigravity.zh-cn",
+  "name": "希言-Antigravity-汉化包",
+  "version": "0.2.0",
+  "locale": "zh-CN",
+  "platform": "macOS",
+  "testedAppVersions": ["2.32.1"],
+  "dictionary": "translations.json",
+  "loader": "patch_asar.py",
+  "officialPlugin": false
+}

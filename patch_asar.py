@@ -7,8 +7,10 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -66,7 +68,7 @@ def build_integrity(content):
         blocks = [hashlib.sha256(b"").hexdigest()]
     return {
         "algorithm": "SHA256",
-        "hash": blocks[0],
+        "hash": hashlib.sha256(content).hexdigest(),
         "blockSize": block_size,
         "blocks": blocks,
     }
@@ -120,13 +122,25 @@ def repack_archive(original_path: Path, output_path: Path, patched_content: byte
 
 
 def load_injector() -> str:
-    return (PACKAGE_DIR / "translator.js").read_text(encoding="utf-8")
+    dictionary = json.loads((PACKAGE_DIR / "translations.json").read_text(encoding="utf-8"))
+    return "window.__antigravityZhCnDictionary = " + json.dumps(dictionary, ensure_ascii=False) + ";\n" + (PACKAGE_DIR / "translator.js").read_text(encoding="utf-8")
 
 
 def read_state():
     if not STATE_PATH.exists():
         return None
     return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+
+
+def inspect_app(path=None):
+    _, tree, data_start, raw = read_archive(path or APP_ASAR)
+    files = dict(walk_files(tree))
+    def content(path):
+        meta = files[path]
+        start = data_start + int(meta["offset"])
+        return raw[start : start + int(meta["size"])]
+    version = json.loads(content("/package.json")).get("version", "unknown")
+    return version, content(TARGET_PATH)
 
 
 def status():
@@ -137,13 +151,21 @@ def status():
     state = read_state()
     if state and current == state.get("patchedSha256"):
         print(f"已安装简体中文补丁：Antigravity {state['version']}")
+        if state.get("injectorSha256") != hashlib.sha256(load_injector().encode()).hexdigest():
+            print("本地词库已更新，完全退出后运行 apply 可更新翻译。")
         print(f"当前 app.asar: {current}")
         return 0
     if state and current == state.get("originalSha256"):
         print("未安装补丁（当前是原始 app.asar）。")
         return 0
+    version, source = inspect_app()
+    if MARKER.encode() not in source:
+        if not state or version != state.get("version"):
+            print(f"Antigravity {version} 尚未安装汉化补丁（应用更新会覆盖补丁）。")
+            print("完全退出应用后运行 apply；工具将备份当前版本，不会恢复旧版应用。")
+            return 2
     print(f"当前 app.asar 未匹配已记录版本：{current}")
-    print("可能是应用更新或外部修改，请先运行 build 检查。")
+    print("检测到同版本外部修改或未知补丁，请先运行 build 检查。")
     return 2
 
 
@@ -151,36 +173,46 @@ def apply_patch():
     if not APP_ASAR.exists():
         raise RuntimeError(f"未找到 Antigravity: {APP_ASAR}")
     original_hash = sha256(APP_ASAR)
+    source_archive = APP_ASAR
+    current_hash = original_hash
+    injector = load_injector()
+    injector_hash = hashlib.sha256(injector.encode()).hexdigest()
     previous = read_state()
     if previous and original_hash == previous.get("patchedSha256"):
-        print("补丁已经安装，无需重复操作。")
-        return
+        if previous.get("injectorSha256") == injector_hash:
+            print("补丁和词库已是当前版本，无需重复操作。")
+            return
+        source_archive = Path(previous["backup"])
+        if not source_archive.exists() or sha256(source_archive) != previous["originalSha256"]:
+            raise RuntimeError("更新词库需要有效的原始备份；校验失败，已停止。")
+        original_hash = previous["originalSha256"]
+        print("正在基于已校验的原始备份更新词库。")
+    version, old_utils = inspect_app(source_archive)
+    # Validate compatibility before changing backups, state, or the application.
+    patched_utils = patch_utils_source(old_utils, injector)
     if previous and original_hash != previous.get("originalSha256"):
-        raise RuntimeError("检测到 app.asar 与上次记录不一致。请先运行 restore，或删除旧状态后重新检查版本。")
+        if version == "unknown" or version == previous.get("version"):
+            raise RuntimeError("检测到同版本 app.asar 被外部修改，已停止安装。不会覆盖未知修改。")
+        print(f"检测到应用更新：{previous['version']} → {version}，将为当前版本单独备份并安装。")
 
-    version = "unknown"
-    package_json = PACKAGE_DIR / "detected-version.json"
     backup_name = f"app.asar.{original_hash[:12]}.original"
     backup_path = BACKUP_DIR / backup_name
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     if not backup_path.exists():
-        shutil.copy2(APP_ASAR, backup_path)
-
-    _, tree, data_start, raw = read_archive(APP_ASAR)
-    for path, metadata in walk_files(tree):
-        if path == "/package.json":
-            package_data = raw[data_start + int(metadata["offset"]) : data_start + int(metadata["offset"]) + int(metadata["size"])]
-            version = json.loads(package_data.decode("utf-8")).get("version", version)
-            break
-
-    target = next(metadata for path, metadata in walk_files(tree) if path == TARGET_PATH)
-    old_utils = raw[data_start + int(target["offset"]) : data_start + int(target["offset"]) + int(target["size"])]
-    patched_utils = patch_utils_source(old_utils, load_injector())
+        shutil.copy2(source_archive, backup_path)
+    if sha256(backup_path) != original_hash:
+        raise RuntimeError("原始备份校验失败，已停止安装。")
+    if previous:
+        history = BACKUP_DIR / f"patch-state.{previous['patchedSha256'][:12]}.json"
+        history.write_text(json.dumps(previous, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     with tempfile.NamedTemporaryFile(prefix="antigravity-zh-cn-", suffix=".asar", dir=APP_ASAR.parent, delete=False) as temp:
         temp_path = Path(temp.name)
     try:
-        repack_archive(APP_ASAR, temp_path, patched_utils)
+        repack_archive(source_archive, temp_path, patched_utils)
+        os.chmod(temp_path, APP_ASAR.stat().st_mode & 0o777)
         patched_hash = sha256(temp_path)
+        if sha256(APP_ASAR) != current_hash:
+            raise RuntimeError("安装期间应用文件发生变化，已停止。请待应用更新结束后重试。")
         os.replace(temp_path, APP_ASAR)
     finally:
         if temp_path.exists():
@@ -193,6 +225,7 @@ def apply_patch():
         "backup": str(backup_path),
         "target": str(APP_ASAR),
         "marker": MARKER,
+        "injectorSha256": injector_hash,
     }
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"已安装 Antigravity {version} 简体中文补丁。")
@@ -210,6 +243,8 @@ def restore_patch():
     backup = Path(state["backup"])
     if not backup.exists():
         raise RuntimeError(f"找不到原始备份：{backup}")
+    if sha256(backup) != state.get("originalSha256"):
+        raise RuntimeError("原始备份校验失败，已停止恢复。")
     shutil.copy2(backup, APP_ASAR)
     STATE_PATH.unlink(missing_ok=True)
     print("已恢复 Antigravity 原始 app.asar。请重新启动应用。")
@@ -218,12 +253,30 @@ def restore_patch():
 def build_copy(output: Path):
     if not APP_ASAR.exists():
         raise RuntimeError(f"未找到 Antigravity: {APP_ASAR}")
-    _, tree, data_start, raw = read_archive(APP_ASAR)
-    target = next(metadata for path, metadata in walk_files(tree) if path == TARGET_PATH)
-    old_utils = raw[data_start + int(target["offset"]) : data_start + int(target["offset"]) + int(target["size"])]
+    source = APP_ASAR
+    state = read_state()
+    if state and sha256(APP_ASAR) == state.get("patchedSha256"):
+        source = Path(state["backup"])
+        if sha256(source) != state["originalSha256"]:
+            raise RuntimeError("原始备份校验失败。")
+    if output.resolve() == APP_ASAR.resolve() or output.resolve() == source.resolve():
+        raise RuntimeError("build 输出不能覆盖应用或原始备份。")
+    _, old_utils = inspect_app(source)
     patched_utils = patch_utils_source(old_utils, load_injector())
-    repack_archive(APP_ASAR, output, patched_utils)
+    repack_archive(source, output, patched_utils)
     print(f"已生成测试补丁：{output}")
+
+
+def launch():
+    # Do not interrupt running agents. Only patch before a fresh launch.
+    running = subprocess.run(["/usr/bin/pgrep", "-f", "^" + re.escape(str(APP_ASAR.parents[1] / "MacOS/Antigravity")) + "( |$)"], capture_output=True)
+    if running.returncode not in (0, 1):
+        raise RuntimeError("无法检查应用进程；请手动退出应用后运行 apply。")
+    if running.returncode == 0:
+        print("Antigravity 已在运行，不会中断后台任务。若刚更新，请完全退出后再次使用中文启动入口。")
+    else:
+        apply_patch()
+    subprocess.run(["/usr/bin/open", "-a", str(APP_ASAR.parents[2])], check=True)
 
 
 def main():
@@ -232,6 +285,7 @@ def main():
     sub.add_parser("status", help="查看补丁状态")
     sub.add_parser("apply", help="备份并安装补丁")
     sub.add_parser("restore", help="恢复原始 app.asar")
+    sub.add_parser("launch", help="检查并重装兼容补丁，然后启动应用；不中断运行中的任务")
     build = sub.add_parser("build", help="只生成补丁文件，不修改已安装应用")
     build.add_argument("output", type=Path)
     args = parser.parse_args()
@@ -243,7 +297,12 @@ def main():
         restore_patch()
     elif args.command == "build":
         build_copy(args.output)
+    elif args.command == "launch":
+        launch()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (RuntimeError, OSError, ValueError, KeyError) as error:
+        raise SystemExit(f"汉化操作未完成：{error}")

@@ -2,3 +2,6 @@ __pycache__/
 backups/
 patch-state.json
 .DS_Store
+*.app/
+release/*.zip
+launcher.log
